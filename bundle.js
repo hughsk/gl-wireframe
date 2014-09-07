@@ -1,57 +1,40 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
-var canvas = document.body.appendChild(document.createElement('canvas'))
-var gl     = require('gl-context')(canvas, render)
-var camera = require('canvas-orbit-camera')(canvas)
-var Geom   = require('gl-geometry')
-var clear  = require('gl-clear')({ color: [1,1,1,1] })
-var mat4   = require('gl-mat4')
-var Shader = require('glslify')
-var bunny  = require('bunny')
-var wire   = require('./')
+var canvas = document.body.appendChild(document.createElement("canvas"));
+var gl = require("gl-context")(canvas, render);
+var camera = require("canvas-orbit-camera")(canvas);
+var Geom = require("gl-geometry");
 
-bunny.cells = wire(bunny.cells)
-bunny = Geom(gl)
-  .attr('position', bunny.positions)
-  .faces(bunny.cells)
+var clear = require("gl-clear")({
+    color: [1, 1, 1, 1]
+});
 
-window.addEventListener('resize'
-  , require('canvas-fit')(canvas)
-  , false
-)
-
-var proj  = mat4.create()
-var view  = mat4.create()
-var model = mat4.create()
-
-var shader = Shader({
-    vert: './wire.vert'
-  , frag: './wire.frag'
-})(gl)
+var mat4 = require("gl-mat4");
+var Shader = require("glslify");
+var bunny = require("bunny");
+var wire = require("./");
+bunny.cells = wire(bunny.cells);
+bunny = Geom(gl).attr("position", bunny.positions).faces(bunny.cells);
+window.addEventListener("resize", require("canvas-fit")(canvas), false);
+var proj = mat4.create();
+var view = mat4.create();
+var model = mat4.create();
+var shader = require("glslify/adapter.js")("\n#define GLSLIFY 1\n\nprecision mediump float;\nattribute vec3 position;\nuniform mat4 proj;\nuniform mat4 view;\nuniform mat4 model;\nvoid main() {\n  gl_Position = proj * view * model * vec4(position, 1.0);\n}", "\n#define GLSLIFY 1\n\nprecision mediump float;\nvoid main() {\n  gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);\n}", [{"name":"proj","type":"mat4"},{"name":"view","type":"mat4"},{"name":"model","type":"mat4"}], [{"name":"position","type":"vec3"}])(gl);
 
 function render() {
-  var width  = canvas.width
-  var height = canvas.height
-
-  gl.viewport(0, 0, width, height)
-  clear(gl)
-
-  camera.view(view)
-  camera.tick()
-  mat4.perspective(proj
-    , Math.PI / 4
-    , width / height
-    , 1000
-    , 0.01
-  )
-
-  bunny.bind(shader)
-  shader.uniforms.proj  = proj
-  shader.uniforms.view  = view
-  shader.uniforms.model = model
-  bunny.draw(gl.LINES)
+    var width = canvas.width;
+    var height = canvas.height;
+    gl.viewport(0, 0, width, height);
+    clear(gl);
+    camera.view(view);
+    camera.tick();
+    mat4.perspective(proj, Math.PI / 4, width / height, 1000, 0.01);
+    bunny.bind(shader);
+    shader.uniforms.proj = proj;
+    shader.uniforms.view = view;
+    shader.uniforms.model = model;
+    bunny.draw(gl.LINES);
 }
-
-},{"./":2,"bunny":7,"canvas-fit":8,"canvas-orbit-camera":10,"gl-clear":23,"gl-context":24,"gl-geometry":26,"gl-mat4":60,"glslify":74}],2:[function(require,module,exports){
+},{"./":2,"bunny":7,"canvas-fit":8,"canvas-orbit-camera":10,"gl-clear":23,"gl-context":24,"gl-geometry":26,"gl-mat4":60,"glslify":75,"glslify/adapter.js":74}],2:[function(require,module,exports){
 module.exports = wireframe
 
 function wireframe(cells) {
@@ -10691,6 +10674,17 @@ function transpose(out, a) {
     return out;
 };
 },{}],74:[function(require,module,exports){
+module.exports = programify
+
+var shader = require('gl-shader-core')
+
+function programify(vertex, fragment, uniforms, attributes) {
+  return function(gl) {
+    return shader(gl, vertex, fragment, uniforms, attributes)
+  }
+}
+
+},{"gl-shader-core":80}],75:[function(require,module,exports){
 module.exports = noop
 
 function noop() {
@@ -10700,4 +10694,467 @@ function noop() {
   )
 }
 
-},{}]},{},[1]);
+},{}],76:[function(require,module,exports){
+"use strict"
+
+module.exports = createAttributeWrapper
+
+//Shader attribute class
+function ShaderAttribute(gl, program, location, dimension, name, constFunc, relink) {
+  this._gl = gl
+  this._program = program
+  this._location = location
+  this._dimension = dimension
+  this._name = name
+  this._constFunc = constFunc
+  this._relink = relink
+}
+
+var proto = ShaderAttribute.prototype
+
+proto.pointer = function setAttribPointer(type, normalized, stride, offset) {
+  var gl = this._gl
+  gl.vertexAttribPointer(this._location, this._dimension, type||gl.FLOAT, normalized?gl.TRUE:gl.FALSE, stride||0, offset||0)
+  this._gl.enableVertexAttribArray(this._location)
+}
+
+Object.defineProperty(proto, "location", {
+  get: function() {
+    return this._location
+  }
+  , set: function(v) {
+    if(v !== this._location) {
+      this._location = v
+      this._gl.bindAttribLocation(this._program, v, this._name)
+      this._gl.linkProgram(this._program)
+      this._relink()
+    }
+  }
+})
+
+
+//Adds a vector attribute to obj
+function addVectorAttribute(gl, program, location, dimension, obj, name, doLink) {
+  var constFuncArgs = [ "gl", "v" ]
+  var varNames = []
+  for(var i=0; i<dimension; ++i) {
+    constFuncArgs.push("x"+i)
+    varNames.push("x"+i)
+  }
+  constFuncArgs.push([
+    "if(x0.length===undefined){return gl.vertexAttrib", dimension, "f(v,", varNames.join(","), ")}else{return gl.vertexAttrib", dimension, "fv(v,x0)}"
+  ].join(""))
+  var constFunc = Function.apply(undefined, constFuncArgs)
+  var attr = new ShaderAttribute(gl, program, location, dimension, name, constFunc, doLink)
+  Object.defineProperty(obj, name, {
+    set: function(x) {
+      gl.disableVertexAttribArray(attr._location)
+      constFunc(gl, attr._location, x)
+      return x
+    }
+    , get: function() {
+      return attr
+    }
+    , enumerable: true
+  })
+}
+
+//Create shims for attributes
+function createAttributeWrapper(gl, program, attributes, doLink) {
+  var obj = {}
+  for(var i=0, n=attributes.length; i<n; ++i) {
+    var a = attributes[i]
+    var name = a.name
+    var type = a.type
+    var location = gl.getAttribLocation(program, name)
+    
+    switch(type) {
+      case "bool":
+      case "int":
+      case "float":
+        addVectorAttribute(gl, program, location, 1, obj, name, doLink)
+      break
+      
+      default:
+        if(type.indexOf("vec") >= 0) {
+          var d = type.charCodeAt(type.length-1) - 48
+          if(d < 2 || d > 4) {
+            throw new Error("Invalid data type for attribute " + name + ": " + type)
+          }
+          addVectorAttribute(gl, program, location, d, obj, name, doLink)
+        } else {
+          throw new Error("Unknown data type for attribute " + name + ": " + type)
+        }
+      break
+    }
+  }
+  return obj
+}
+
+},{}],77:[function(require,module,exports){
+"use strict"
+
+var dup = require("dup")
+var coallesceUniforms = require("./reflect.js")
+
+module.exports = createUniformWrapper
+
+//Binds a function and returns a value
+function identity(x) {
+  var c = new Function("y", "return function(){return y}")
+  return c(x)
+}
+
+//Create shims for uniforms
+function createUniformWrapper(gl, program, uniforms, locations) {
+
+  function makeGetter(index) {
+    var proc = new Function("gl", "prog", "locations", 
+      "return function(){return gl.getUniform(prog,locations[" + index + "])}") 
+    return proc(gl, program, locations)
+  }
+
+  function makePropSetter(path, index, type) {
+    switch(type) {
+      case "bool":
+      case "int":
+      case "sampler2D":
+      case "samplerCube":
+        return "gl.uniform1i(locations[" + index + "],obj" + path + ")"
+      case "float":
+        return "gl.uniform1f(locations[" + index + "],obj" + path + ")"
+      default:
+        var vidx = type.indexOf("vec")
+        if(0 <= vidx && vidx <= 1 && type.length === 4 + vidx) {
+          var d = type.charCodeAt(type.length-1) - 48
+          if(d < 2 || d > 4) {
+            throw new Error("Invalid data type")
+          }
+          switch(type.charAt(0)) {
+            case "b":
+            case "i":
+              return "gl.uniform" + d + "iv(locations[" + index + "],obj" + path + ")"
+            case "v":
+              return "gl.uniform" + d + "fv(locations[" + index + "],obj" + path + ")"            
+            default:
+              throw new Error("Unrecognized data type for vector " + name + ": " + type)
+          }
+        } else if(type.indexOf("mat") === 0 && type.length === 4) {
+          var d = type.charCodeAt(type.length-1) - 48
+          if(d < 2 || d > 4) {
+            throw new Error("Invalid uniform dimension type for matrix " + name + ": " + type)
+          }
+          return "gl.uniformMatrix" + d + "fv(locations[" + index + "],false,obj" + path + ")"
+        } else {
+          throw new Error("Unknown uniform data type for " + name + ": " + type)
+        }
+      break
+    }
+  }
+
+  function enumerateIndices(prefix, type) {
+    if(typeof type !== "object") {
+      return [ [prefix, type] ]
+    }
+    var indices = []
+    for(var id in type) {
+      var prop = type[id]
+      var tprefix = prefix
+      if(parseInt(id) + "" === id) {
+        tprefix += "[" + id + "]"
+      } else {
+        tprefix += "." + id
+      }
+      if(typeof prop === "object") {
+        indices.push.apply(indices, enumerateIndices(tprefix, prop))
+      } else {
+        indices.push([tprefix, prop])
+      }
+    }
+    return indices
+  }
+
+  function makeSetter(type) {
+    var code = [ "return function updateProperty(obj){" ]
+    var indices = enumerateIndices("", type)
+    for(var i=0; i<indices.length; ++i) {
+      var item = indices[i]
+      var path = item[0]
+      var idx  = item[1]
+      if(locations[idx]) {
+        code.push(makePropSetter(path, idx, uniforms[idx].type))
+      }
+    }
+    code.push("return obj}")
+    var proc = new Function("gl", "prog", "locations", code.join("\n"))
+    return proc(gl, program, locations)
+  }
+
+  function defaultValue(type) {
+    switch(type) {
+      case "bool":
+        return false
+      case "int":
+      case "sampler2D":
+      case "samplerCube":
+        return 0
+      case "float":
+        return 0.0
+      default:
+        var vidx = type.indexOf("vec")
+        if(0 <= vidx && vidx <= 1 && type.length === 4 + vidx) {
+          var d = type.charCodeAt(type.length-1) - 48
+          if(d < 2 || d > 4) {
+            throw new Error("Invalid data type")
+          }
+          if(type.charAt(0) === "b") {
+            return dup(d, false)
+          }
+          return dup(d)
+        } else if(type.indexOf("mat") === 0 && type.length === 4) {
+          var d = type.charCodeAt(type.length-1) - 48
+          if(d < 2 || d > 4) {
+            throw new Error("Invalid uniform dimension type for matrix " + name + ": " + type)
+          }
+          return dup([d,d])
+        } else {
+          throw new Error("Unknown uniform data type for " + name + ": " + type)
+        }
+      break
+    }
+  }
+
+  function storeProperty(obj, prop, type) {
+    if(typeof type === "object") {
+      var child = processObject(type)
+      Object.defineProperty(obj, prop, {
+        get: identity(child),
+        set: makeSetter(type),
+        enumerable: true,
+        configurable: false
+      })
+    } else {
+      if(locations[type]) {
+        Object.defineProperty(obj, prop, {
+          get: makeGetter(type),
+          set: makeSetter(type),
+          enumerable: true,
+          configurable: false
+        })
+      } else {
+        obj[prop] = defaultValue(uniforms[type].type)
+      }
+    }
+  }
+
+  function processObject(obj) {
+    var result
+    if(Array.isArray(obj)) {
+      result = new Array(obj.length)
+      for(var i=0; i<obj.length; ++i) {
+        storeProperty(result, i, obj[i])
+      }
+    } else {
+      result = {}
+      for(var id in obj) {
+        storeProperty(result, id, obj[id])
+      }
+    }
+    return result
+  }
+
+  //Return data
+  var coallesced = coallesceUniforms(uniforms, true)
+  return {
+    get: identity(processObject(coallesced)),
+    set: makeSetter(coallesced),
+    enumerable: true,
+    configurable: true
+  }
+}
+
+},{"./reflect.js":78,"dup":79}],78:[function(require,module,exports){
+"use strict"
+
+module.exports = makeReflectTypes
+
+//Construct type info for reflection.
+//
+// This iterates over the flattened list of uniform type values and smashes them into a JSON object.
+//
+// The leaves of the resulting object are either indices or type strings representing primitive glslify types
+function makeReflectTypes(uniforms, useIndex) {
+  var obj = {}
+  for(var i=0; i<uniforms.length; ++i) {
+    var n = uniforms[i].name
+    var parts = n.split(".")
+    var o = obj
+    for(var j=0; j<parts.length; ++j) {
+      var x = parts[j].split("[")
+      if(x.length > 1) {
+        if(!(x[0] in o)) {
+          o[x[0]] = []
+        }
+        o = o[x[0]]
+        for(var k=1; k<x.length; ++k) {
+          var y = parseInt(x[k])
+          if(k<x.length-1 || j<parts.length-1) {
+            if(!(y in o)) {
+              if(k < x.length-1) {
+                o[y] = []
+              } else {
+                o[y] = {}
+              }
+            }
+            o = o[y]
+          } else {
+            if(useIndex) {
+              o[y] = i
+            } else {
+              o[y] = uniforms[i].type
+            }
+          }
+        }
+      } else if(j < parts.length-1) {
+        if(!(x[0] in o)) {
+          o[x[0]] = {}
+        }
+        o = o[x[0]]
+      } else {
+        if(useIndex) {
+          o[x[0]] = i
+        } else {
+          o[x[0]] = uniforms[i].type
+        }
+      }
+    }
+  }
+  return obj
+}
+},{}],79:[function(require,module,exports){
+module.exports=require(38)
+},{"/Users/hughsk/src/github.com/hughsk/gl-wireframe/node_modules/gl-geometry/node_modules/gl-buffer/node_modules/typedarray-pool/node_modules/dup/dup.js":38}],80:[function(require,module,exports){
+"use strict"
+
+var createUniformWrapper = require("./lib/create-uniforms.js")
+var createAttributeWrapper = require("./lib/create-attributes.js")
+var makeReflect = require("./lib/reflect.js")
+
+//Shader object
+function Shader(gl, prog, vertShader, fragShader) {
+  this.gl = gl
+  this.handle = prog
+  this.attributes = null
+  this.uniforms = null
+  this.types = null
+  this.vertexShader = vertShader
+  this.fragmentShader = fragShader
+}
+
+//Binds the shader
+Shader.prototype.bind = function() {
+  this.gl.useProgram(this.handle)
+}
+
+//Destroy shader, release resources
+Shader.prototype.dispose = function() {
+  var gl = this.gl
+  gl.deleteShader(this.vertexShader)
+  gl.deleteShader(this.fragmentShader)
+  gl.deleteProgram(this.handle)
+}
+
+Shader.prototype.updateExports = function(uniforms, attributes) {
+  var locations = new Array(uniforms.length)
+  var program = this.handle
+  var gl = this.gl
+
+  var doLink = relinkUniforms.bind(void 0,
+    gl,
+    program,
+    locations,
+    uniforms
+  )
+  doLink()
+
+  this.types = {
+    uniforms: makeReflect(uniforms),
+    attributes: makeReflect(attributes)
+  }
+
+  this.attributes = createAttributeWrapper(
+    gl,
+    program,
+    attributes,
+    doLink
+  )
+
+  Object.defineProperty(this, "uniforms", createUniformWrapper(
+    gl,
+    program,
+    uniforms,
+    locations
+  ))
+}
+
+//Relinks all uniforms
+function relinkUniforms(gl, program, locations, uniforms) {
+  for(var i=0; i<uniforms.length; ++i) {
+    locations[i] = gl.getUniformLocation(program, uniforms[i].name)
+  }
+}
+
+//Compiles and links a shader program with the given attribute and vertex list
+function createShader(
+    gl
+  , vertSource
+  , fragSource
+  , uniforms
+  , attributes) {
+  
+  //Compile vertex shader
+  var vertShader = gl.createShader(gl.VERTEX_SHADER)
+  gl.shaderSource(vertShader, vertSource)
+  gl.compileShader(vertShader)
+  if(!gl.getShaderParameter(vertShader, gl.COMPILE_STATUS)) {
+    var errLog = gl.getShaderInfoLog(vertShader)
+    console.error("Error compling vertex shader:", errLog)
+    throw new Error("Error compiling vertex shader:" + errLog)
+  }
+  
+  //Compile fragment shader
+  var fragShader = gl.createShader(gl.FRAGMENT_SHADER)
+  gl.shaderSource(fragShader, fragSource)
+  gl.compileShader(fragShader)
+  if(!gl.getShaderParameter(fragShader, gl.COMPILE_STATUS)) {
+    var errLog = gl.getShaderInfoLog(fragShader)
+    console.error("Error compiling fragment shader:", errLog)
+    throw new Error("Error compiling fragment shader:" + errLog)
+  }
+  
+  //Link program
+  var program = gl.createProgram()
+  gl.attachShader(program, fragShader)
+  gl.attachShader(program, vertShader)
+  gl.linkProgram(program)
+  if(!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    var errLog = gl.getProgramInfoLog(program)
+    console.error("Error linking shader program:", errLog)
+    throw new Error("Error linking shader program:" + errLog)
+  }
+  
+  //Return final linked shader object
+  var shader = new Shader(
+    gl,
+    program,
+    vertShader,
+    fragShader
+  )
+  shader.updateExports(uniforms, attributes)
+
+  return shader
+}
+
+module.exports = createShader
+
+},{"./lib/create-attributes.js":76,"./lib/create-uniforms.js":77,"./lib/reflect.js":78}]},{},[1]);
