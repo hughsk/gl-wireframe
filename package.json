@@ -6,7 +6,7 @@
   "license": "MIT",
   "scripts": {
     "start": "beefy example.js:bundle.js --open -- -t glslify",
-    "prepublish": "browserify example.js -o bundle.js"
+    "prepublish": "browserify example.js -o bundle.js -t glslify"
   },
   "author": {
     "name": "Hugh Kennedy",
