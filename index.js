@@ -8,9 +8,9 @@ function wireframe(cells) {
     var a = cell[0]
     var b = cell[1]
     var c = cell[2]
-    if (a && b) newcells.push(a, b)
-    if (b && c) newcells.push(b, c)
-    if (a && c) newcells.push(c, a)
+    if (a !== null && b !== null) newcells.push(a, b)
+    if (b !== null && c !== null) newcells.push(b, c)
+    if (a !== null && c !== null) newcells.push(c, a)
   }
 
   return newcells
