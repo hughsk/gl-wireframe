@@ -1,6 +1,6 @@
 {
   "name": "gl-wireframe",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Convert a mesh index for drawing wireframes",
   "main": "index.js",
   "license": "MIT",
